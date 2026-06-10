@@ -163,6 +163,50 @@
   .cal-pop-ref { font-weight: bold; color: var(--navy); width: 60px; flex-shrink: 0; }
   .cal-pop-name { flex: 1; color: #5A3040; }
   .cal-pop-rep { font-size: 10px; }
+
+  /* ── Mobile ─────────────────────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .header { padding: 10px 12px; }
+    .header-right { width: 100%; gap: 6px; justify-content: space-between; }
+    .header-right > div { min-width: 0 !important; padding: 4px 10px !important; }
+    .btn { padding: 8px 12px; }
+
+    .tabs { padding: 0 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab { padding: 12px 11px; white-space: nowrap; flex: 0 0 auto; }
+
+    .content { padding: 10px 8px; }
+
+    .stats { gap: 8px; }
+    .stat-card { flex: 1 1 calc(50% - 4px); min-width: calc(50% - 4px); padding: 10px 12px; }
+    .stat-card .num { font-size: 20px; }
+
+    th, td { padding: 8px 6px; }
+    select, input[type="date"], input[type="text"] { font-size: 16px; min-height: 38px; }
+    .rating-sel { min-height: 38px; }
+    .modal { padding: 18px; }
+    .filter-row input { min-width: 120px; }
+
+    /* Due Today table → stacked cards */
+    .today-section { padding: 12px 10px; }
+    #todayDue table, #todayDue tbody { display: block; }
+    #todayDue tr:first-child { display: none; }            /* header row */
+    #todayDue tr {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+      padding: 10px 4px; border-bottom: 1.5px solid var(--dgrey);
+    }
+    #todayDue td { display: block; padding: 0; border: none; }
+    #todayDue td:nth-child(3) { order: 1; flex-basis: 100%; font-size: 14px !important; font-weight: 600; }
+    #todayDue td:nth-child(1) { order: 2; }
+    #todayDue td:nth-child(2) { order: 3; }
+    #todayDue td:nth-child(4) { order: 4; }
+    #todayDue td:nth-child(5) { order: 5; flex-basis: 100%; }
+    #todayDue td:nth-child(6) { order: 6; }
+    #todayDue td:nth-child(7) { order: 7; margin-left: auto; }
+
+    /* Calendar: smaller cells */
+    .cal-grid { gap: 2px; }
+    .cal-day-num { font-size: 10px; }
+  }
 </style>
 </head>
 <body>
