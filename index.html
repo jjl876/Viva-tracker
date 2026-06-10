@@ -1051,7 +1051,7 @@ function renderToday() {
 
   const dueToday = cases.filter(c=>{
     const nr=getNextReview(c); return nr && nr<=t;
-  }).sort((a,b)=>(getNextReview(a)||"")<(getNextReview(b)||"")?-1:1);
+  }).sort((a,b)=>(getNextReview(a)||"")>(getNextReview(b)||"")?-1:1);  // newest due date first, oldest overdue last
 
   const newToday = cases.filter(c=>c.rep1_date===t && !c.rep1_rating);
   const allDue = [...newToday.map(c=>({...c,_isNew:true})), ...dueToday.filter(c=>c.rep1_date!==t||c.rep1_rating).map(c=>({...c,_isNew:false}))];
