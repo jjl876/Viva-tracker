@@ -762,7 +762,7 @@ function confirmImport() {
       if (imp.rep1_done_date) state.cases[ref].rep1_done_date = imp.rep1_done_date;
       if (imp.rep2_done_date) state.cases[ref].rep2_done_date = imp.rep2_done_date;
       if (imp.rep3_done_date) state.cases[ref].rep3_done_date = imp.rep3_done_date;
-      if (imp.rep1_date) state.cases[ref].rep1_date = imp.rep1_date;
+      if (imp.rep1_date !== undefined) state.cases[ref].rep1_date = imp.rep1_date;
       if (imp.rep2_date_override !== undefined) state.cases[ref].rep2_date_override = imp.rep2_date_override;
       if (imp.rep3_date_override !== undefined) state.cases[ref].rep3_date_override = imp.rep3_date_override;
       if (imp.notion_url !== undefined) state.cases[ref].notion_url = imp.notion_url;
