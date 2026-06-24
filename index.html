@@ -570,14 +570,16 @@ function loadState() {
       } catch(e) { console.warn("Could not migrate v2 state", e); }
     }
   }
-  // One-time cleanup: not-rated cases shouldn't keep a stale first-review date
-  if (!localStorage.getItem("vivaCleanup_rep1_v1")) {
+  // One-time cleanup: not-rated cases shouldn't keep a first-review date.
+  // Writes an explicit "" marker so the clear sticks (overrides baked-in defaults)
+  // and propagates to the cloud. Runs once per device.
+  if (!localStorage.getItem("vivaCleanup_rep1_v2")) {
     let _cl = 0;
     for (const ref in state.cases) {
       const c = state.cases[ref];
-      if (!c.rep1_rating && c.rep1_date) { c.rep1_date = null; _cl++; }
+      if (!c.rep1_rating && c.rep1_date !== "") { c.rep1_date = ""; _cl++; }
     }
-    localStorage.setItem("vivaCleanup_rep1_v1", "done");
+    localStorage.setItem("vivaCleanup_rep1_v2", "done");
     if (_cl) saveState();
   }
   updateCaseCount();
@@ -604,7 +606,7 @@ function saveState() {
         rep1_rating: c.rep1_rating, rep2_rating: c.rep2_rating, rep3_rating: c.rep3_rating,
         rep1_done_date: c.rep1_done_date, rep2_done_date: c.rep2_done_date, rep3_done_date: c.rep3_done_date,
       };
-      if (c.rep1_date)          toSave.cases[ref].rep1_date          = c.rep1_date;
+      if (c.rep1_date || c.rep1_date === "") toSave.cases[ref].rep1_date = c.rep1_date;
       if (c.rep2_date_override) toSave.cases[ref].rep2_date_override = c.rep2_date_override;
       if (c.rep3_date_override) toSave.cases[ref].rep3_date_override = c.rep3_date_override;
       if (c.extraReps && c.extraReps.length) toSave.cases[ref].extraReps = c.extraReps;
@@ -1285,7 +1287,7 @@ function confirmEditDate() {
 function clearRep1Date() {
   const c = state.cases[_editDateRef];
   if (!c) return;
-  c.rep1_date = null;
+  c.rep1_date = "";   // explicit cleared marker (overrides baked-in default)
   saveState();
   closeModal("editDateModal");
   refreshAll();
