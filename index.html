@@ -215,6 +215,7 @@
   <div>
     <div style="font-size:18px;font-weight:bold;color:white;">📚 Justine's Viva Tracker</div>
     <div class="subtitle">Apr 28 – Aug 30, 2026 &nbsp;·&nbsp; <span id="caseCountHdr">307</span> cases &nbsp;·&nbsp; 3 reps each</div>
+    <div class="subtitle" id="syncStatusHdr" style="margin-top:2px;min-height:13px"></div>
   </div>
   <div class="header-right">
     <button class="btn btn-green" onclick="openAddCase()">➕ Add Case</button>
@@ -617,8 +618,7 @@ function saveState() {
     }
   }
   localStorage.setItem("vivaState_v3", JSON.stringify(toSave));
-  const note = document.getElementById("saveNote");
-  if (note) note.textContent = "✓ Saved " + new Date().toLocaleTimeString();
+  _setSyncNote("✓ Saved " + new Date().toLocaleTimeString());
   _queueCloudPush(toSave);
 }
 
@@ -637,8 +637,10 @@ const SYNC_PATH = "viva/654ccb90c2b82728e784f024";
 let _syncRef = null, _lastPushedAt = null, _pushTimer = null;
 
 function _setSyncNote(msg) {
-  const note = document.getElementById("saveNote");
-  if (note) note.textContent = msg;
+  for (const id of ["saveNote", "syncStatusHdr"]) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = msg;
+  }
 }
 
 // ── Merge-based sync (prevents one device/user overwriting another's progress)
