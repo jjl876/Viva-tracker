@@ -741,6 +741,7 @@ function initCloudSync() {
   try {
     firebase.initializeApp(FIREBASE_CONFIG);
     _syncRef = firebase.database().ref(SYNC_PATH);
+    _setSyncNote("☁️ Connecting…");
   } catch(e) { console.warn("Firebase init failed", e); return; }
   _syncRef.on("value", snap => {
     const remote = snap.val();
@@ -761,14 +762,17 @@ function initCloudSync() {
     const merged = _mergeSaves(localSave, remoteSave);
     const mergedCanon = _canonProgress(merged);
 
+    let acted = false;
     if (!localSave || mergedCanon !== _canonProgress(localSave)) {
       localStorage.setItem("vivaState_v3", JSON.stringify(merged));
       loadState();
       _rerenderActiveTab();
       _setSyncNote("☁️ Merged from cloud " + new Date().toLocaleTimeString());
+      acted = true;
     }
     // If we hold progress the cloud was missing, push the union back up.
-    if (mergedCanon !== _canonProgress(remoteSave)) _pushSave(merged);
+    if (mergedCanon !== _canonProgress(remoteSave)) { _pushSave(merged); acted = true; }
+    if (!acted) _setSyncNote("☁️ Up to date " + new Date().toLocaleTimeString());
   });
 }
 
