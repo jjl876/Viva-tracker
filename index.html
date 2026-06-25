@@ -641,14 +641,85 @@ function _setSyncNote(msg) {
   if (note) note.textContent = msg;
 }
 
+// ── Merge-based sync (prevents one device/user overwriting another's progress)
+// Count rated core reps — used to decide which side of a merge has more progress.
+function _ratedReps(c) {
+  let n = 0;
+  if (c && c.rep1_rating != null) n++;
+  if (c && c.rep2_rating != null) n++;
+  if (c && c.rep3_rating != null) n++;
+  return n;
+}
+
+// Union two saved-progress blobs without ever losing a rating.
+// Per case: keep the side with more rated reps (tie -> newer blob), then fill
+// any still-missing rep ratings/done-dates from the other side.
+function _mergeSaves(a, b) {
+  a = a || { cases: {}, deleted: [] };
+  b = b || { cases: {}, deleted: [] };
+  const aNewer = (a.exported_at || "") >= (b.exported_at || "");
+  const out = { cases: {}, deleted: [], exported_at: new Date().toISOString() };
+  const refs = new Set([...Object.keys(a.cases || {}), ...Object.keys(b.cases || {})]);
+  for (const ref of refs) {
+    const ca = (a.cases || {})[ref];
+    const cb = (b.cases || {})[ref];
+    if (ca && !cb) { out.cases[ref] = { ...ca }; continue; }
+    if (cb && !ca) { out.cases[ref] = { ...cb }; continue; }
+    const pa = _ratedReps(ca), pb = _ratedReps(cb);
+    const primary = pa > pb ? ca : pb > pa ? cb : (aNewer ? ca : cb);
+    const other   = primary === ca ? cb : ca;
+    const m = { ...other, ...primary };
+    for (const f of ["rep1_rating","rep2_rating","rep3_rating",
+                     "rep1_done_date","rep2_done_date","rep3_done_date"]) {
+      if (primary[f] == null && other[f] != null) m[f] = other[f];
+    }
+    out.cases[ref] = m;
+  }
+  const da = new Set(a.deleted || []), db = new Set(b.deleted || []);
+  for (const ref of da) if (db.has(ref) && !out.cases[ref]) out.deleted.push(ref);
+  return out;
+}
+
+// Order-independent fingerprint of meaningful progress, to detect real changes.
+function _canonProgress(save) {
+  const cases = (save && save.cases) || {};
+  const norm = Object.keys(cases).sort().map(k => {
+    const c = cases[k] || {};
+    return [k, c.rep1_rating, c.rep2_rating, c.rep3_rating,
+            c.rep1_done_date, c.rep2_done_date, c.rep3_done_date,
+            c.rep1_date, c.rep2_date_override, c.rep3_date_override,
+            c.notion_url, c.name, c.spec];
+  });
+  const del = ((save && save.deleted) || []).slice().sort();
+  return JSON.stringify([norm, del]);
+}
+
+// Push using a transaction that MERGES with whatever is already in the cloud,
+// so concurrent writes (e.g. from a study partner) can never clobber progress.
+function _pushSave(save) {
+  if (!_syncRef || !save) return;
+  _syncRef.transaction(current => {
+    let merged;
+    if (current && current.data) {
+      let cur; try { cur = JSON.parse(current.data); } catch(e) { cur = null; }
+      merged = cur ? _mergeSaves(cur, save) : { ...save, exported_at: new Date().toISOString() };
+    } else {
+      merged = { ...save, exported_at: new Date().toISOString() };
+    }
+    _lastPushedAt = merged.exported_at;
+    return { exported_at: merged.exported_at, data: JSON.stringify(merged) };
+  }).then(r => { if (r && r.committed) _setSyncNote("☁️ Synced " + new Date().toLocaleTimeString()); })
+    .catch(e => { console.warn("Cloud push failed", e); _setSyncNote("⚠️ Sync failed (saved locally)"); });
+}
+
 function _queueCloudPush(toSave) {
   if (!_syncRef) return;
   clearTimeout(_pushTimer);
   _pushTimer = setTimeout(() => {
-    _lastPushedAt = toSave.exported_at;
-    _syncRef.set({ exported_at: toSave.exported_at, data: JSON.stringify(toSave) })
-      .then(() => _setSyncNote("☁️ Synced " + new Date().toLocaleTimeString()))
-      .catch(e => { console.warn("Cloud push failed", e); _setSyncNote("⚠️ Sync failed (saved locally)"); });
+    // Push the latest local state (already includes any merged-in cloud progress)
+    let cur = toSave;
+    try { cur = JSON.parse(localStorage.getItem("vivaState_v3")) || toSave; } catch(e) {}
+    _pushSave(cur);
   }, 1200);
 }
 
@@ -670,36 +741,31 @@ function initCloudSync() {
   } catch(e) { console.warn("Firebase init failed", e); return; }
   _syncRef.on("value", snap => {
     const remote = snap.val();
+    let localSave = null;
+    try { localSave = JSON.parse(localStorage.getItem("vivaState_v3")); } catch(e) {}
+
+    // Cloud empty — seed it from local progress (if any)
     if (!remote || !remote.exported_at || !remote.data) {
-      // Cloud is empty — upload existing local progress
-      const local = localStorage.getItem("vivaState_v3");
-      if (local) {
-        let at = null;
-        try { at = (JSON.parse(local) || {}).exported_at; } catch(e) {}
-        at = at || new Date().toISOString();
-        _lastPushedAt = at;
-        _syncRef.set({ exported_at: at, data: local })
-          .then(() => _setSyncNote("☁️ First sync done " + new Date().toLocaleTimeString()))
-          .catch(e => console.warn("Initial cloud push failed", e));
-      }
+      if (localSave) _pushSave(localSave);
       return;
     }
     if (remote.exported_at === _lastPushedAt) return; // echo of our own write
-    let localAt = null;
-    try { localAt = (JSON.parse(localStorage.getItem("vivaState_v3")) || {}).exported_at; } catch(e) {}
-    if (localAt && remote.exported_at <= localAt) {
-      // Local is newer (e.g. offline progress) — push it up instead
-      if (remote.exported_at < localAt) {
-        _lastPushedAt = localAt;
-        _syncRef.set({ exported_at: localAt, data: localStorage.getItem("vivaState_v3") }).catch(()=>{});
-      }
-      return;
+
+    let remoteSave = null;
+    try { remoteSave = JSON.parse(remote.data); } catch(e) { return; }
+
+    // MERGE remote into local — never overwrite, so progress can only grow.
+    const merged = _mergeSaves(localSave, remoteSave);
+    const mergedCanon = _canonProgress(merged);
+
+    if (!localSave || mergedCanon !== _canonProgress(localSave)) {
+      localStorage.setItem("vivaState_v3", JSON.stringify(merged));
+      loadState();
+      _rerenderActiveTab();
+      _setSyncNote("☁️ Merged from cloud " + new Date().toLocaleTimeString());
     }
-    // Remote is newer — apply it
-    localStorage.setItem("vivaState_v3", remote.data);
-    loadState();
-    _rerenderActiveTab();
-    _setSyncNote("☁️ Updated from cloud " + new Date().toLocaleTimeString());
+    // If we hold progress the cloud was missing, push the union back up.
+    if (mergedCanon !== _canonProgress(remoteSave)) _pushSave(merged);
   });
 }
 
