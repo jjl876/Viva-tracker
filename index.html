@@ -688,7 +688,8 @@ function _canonProgress(save) {
     return [k, c.rep1_rating, c.rep2_rating, c.rep3_rating,
             c.rep1_done_date, c.rep2_done_date, c.rep3_done_date,
             c.rep1_date, c.rep2_date_override, c.rep3_date_override,
-            c.notion_url, c.name, c.spec];
+            c.notion_url, c.name, c.spec,
+            JSON.stringify(c.extraReps || null), JSON.stringify(c._specs || null)];
   });
   const del = ((save && save.deleted) || []).slice().sort();
   return JSON.stringify([norm, del]);
