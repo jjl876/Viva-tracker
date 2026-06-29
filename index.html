@@ -520,6 +520,10 @@ function removeExtraRep(ref, idx) {
 
 let state;
 let pendingImport = null;
+// Refs the user has explicitly deleted. Persisted in the save's `deleted` list
+// so deletions survive reloads and propagate through the merge sync. Tracked
+// separately from EMBEDDED-diffing so CUSTOM cases (not in EMBEDDED) also stick.
+let _tombstones = new Set();
 
 // ── State management ──────────────────────────────────────────────────────────
 function _applyState(s) {
@@ -551,7 +555,11 @@ function loadState() {
   state = JSON.parse(JSON.stringify(EMBEDDED));
   const savedV3 = localStorage.getItem("vivaState_v3");
   if (savedV3) {
-    try { _applyState(JSON.parse(savedV3)); } catch(e) { console.warn("Could not load v3 state", e); }
+    try {
+      const parsed = JSON.parse(savedV3);
+      _tombstones = new Set(parsed.deleted || []);
+      _applyState(parsed);
+    } catch(e) { console.warn("Could not load v3 state", e); }
   } else {
     // Migrate from v2: carry over ratings/progress but drop rep1_date for unrated cases
     const savedV2 = localStorage.getItem("vivaState_v2");
@@ -589,10 +597,14 @@ function loadState() {
 function saveState() {
   const toSave = { cases: {}, deleted: [], exported_at: new Date().toISOString() };
 
-  // Find EMBEDDED refs that no longer exist in state (deleted)
-  for (const ref in EMBEDDED.cases) {
-    if (!state.cases[ref]) toSave.deleted.push(ref);
-  }
+  // Build the tombstone list: known tombstones + any EMBEDDED ref now missing,
+  // minus anything that's present in state again (e.g. re-added via import or a
+  // rename), so a resurrected case clears its tombstone.
+  const del = new Set();
+  for (const ref of _tombstones) if (!state.cases[ref]) del.add(ref);
+  for (const ref in EMBEDDED.cases) if (!state.cases[ref]) del.add(ref);
+  _tombstones = del;
+  toSave.deleted = [...del];
 
   for (const ref in state.cases) {
     const c = state.cases[ref];
@@ -661,8 +673,15 @@ function _mergeSaves(a, b) {
   b = b || { cases: {}, deleted: [] };
   const aNewer = (a.exported_at || "") >= (b.exported_at || "");
   const out = { cases: {}, deleted: [], exported_at: new Date().toISOString() };
+  // Tombstones propagate as a UNION: a case explicitly deleted on EITHER side
+  // stays deleted. (`deleted` only ever holds user-initiated deletions, so the
+  // tombstone is authoritative and wins over a stale copy still sitting on the
+  // other side.) This is what makes a deletion survive a reload/sync round-trip.
+  const del = new Set([...(a.deleted || []), ...(b.deleted || [])]);
+  out.deleted = [...del];
   const refs = new Set([...Object.keys(a.cases || {}), ...Object.keys(b.cases || {})]);
   for (const ref of refs) {
+    if (del.has(ref)) continue; // deleted wins over any surviving copy
     const ca = (a.cases || {})[ref];
     const cb = (b.cases || {})[ref];
     if (ca && !cb) { out.cases[ref] = { ...ca }; continue; }
@@ -677,8 +696,6 @@ function _mergeSaves(a, b) {
     }
     out.cases[ref] = m;
   }
-  const da = new Set(a.deleted || []), db = new Set(b.deleted || []);
-  for (const ref of da) if (db.has(ref) && !out.cases[ref]) out.deleted.push(ref);
   return out;
 }
 
@@ -1443,6 +1460,7 @@ function removeNotionLink() {
 
 function deleteCase(ref) {
   if (!confirm("Delete " + ref + "? This cannot be undone.")) return;
+  _tombstones.add(ref);
   delete state.cases[ref];
   saveState();
   refreshAll();
