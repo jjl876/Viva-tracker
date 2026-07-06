@@ -1604,7 +1604,17 @@ function jumpToDate() {
 // ── PROGRESS TAB ──────────────────────────────────────────────────────────────
 function renderProgress() {
   const cases = Object.values(state.cases);
-  let html = `<div class="stats">`;
+  const doneAll = cases.filter(c=>getStatus(c)==="complete").length;
+  const pctAll  = cases.length ? Math.round(doneAll/cases.length*100) : 0;
+  let html = `<div class="stats">
+    <div class="stat-card" style="flex-basis:100%;min-width:100%">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="font-size:15px;font-weight:bold;color:var(--navy)">🏁 All specialties</span>
+        <span style="font-size:12px;color:#666">${doneAll} of ${cases.length} cases fully completed</span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill" style="width:${pctAll}%"></div></div>
+      <div style="font-size:11px;color:var(--dgreen);margin-top:3px">${pctAll}%</div>
+    </div>`;
   for (const spec of SPEC_ORDER) {
     const sc = cases.filter(c=>c.spec===spec);
     if (!sc.length) continue;
