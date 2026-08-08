@@ -1174,12 +1174,15 @@ function renderToday() {
   const complete = cases.filter(c=>getStatus(c)==="complete").length;
   const inProg   = cases.filter(c=>getStatus(c)==="in_progress").length;
   const notStart = cases.filter(c=>getStatus(c)==="not_started").length;
-  // Overall progress = individual reviews done of all reviews needed (3 per case + extras)
+  // Overall progress = reviews done of reviews with a set date (rated reps always count)
   let repsDone = 0, repsTotal = 0;
   for (const c of cases) {
     const tot = totalReps(c);
-    repsTotal += tot;
-    for (let r = 1; r <= tot; r++) if (getRepRating(c, r) != null) repsDone++;
+    for (let r = 1; r <= tot; r++) {
+      const rated = getRepRating(c, r) != null;
+      if (rated || getRepDate(c, r)) repsTotal++;
+      if (rated) repsDone++;
+    }
   }
   const pct = repsTotal ? Math.round(repsDone/repsTotal*100) : 0;
 
@@ -1868,7 +1871,7 @@ function updateCountdown() {
         let remaining = 0;
         for (const c of Object.values(state.cases)) {
           const tot = totalReps(c);
-          for (let r = 1; r <= tot; r++) if (getRepRating(c, r) == null) remaining++;
+          for (let r = 1; r <= tot; r++) if (getRepRating(c, r) == null && getRepDate(c, r)) remaining++;
         }
         elRevRate.textContent = Math.ceil(remaining / diff);
       }
