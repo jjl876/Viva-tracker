@@ -533,6 +533,17 @@ let pendingImport = null;
 // so deletions survive reloads and propagate through the merge sync. Tracked
 // separately from EMBEDDED-diffing so CUSTOM cases (not in EMBEDDED) also stick.
 let _tombstones = new Set();
+// Timestamped deletes/revives. A tombstone only wins while it is NEWER than the
+// case's last revive, so re-adding a ref that was deleted before (on this or any
+// other device) sticks, instead of being dropped by a stale tombstone that is
+// still sitting in the cloud blob.
+let _delAt = {};   // ref -> ISO time it was deleted
+let _revAt = {};   // ref -> ISO time it was (re-)added / imported back
+function _effDeleted(delSet, dAt, rAt) {
+  const out = new Set();
+  for (const ref of delSet) if (!((rAt[ref] || "") > (dAt[ref] || ""))) out.add(ref);
+  return out;
+}
 
 // ── State management ──────────────────────────────────────────────────────────
 function _applyState(s) {
@@ -567,6 +578,8 @@ function loadState() {
     try {
       const parsed = JSON.parse(savedV3);
       _tombstones = new Set(parsed.deleted || []);
+      _delAt = parsed.deletedAt || {};
+      _revAt = parsed.revived   || {};
       _applyState(parsed);
     } catch(e) { console.warn("Could not load v3 state", e); }
   } else {
@@ -627,7 +640,19 @@ function loadState() {
 }
 
 function saveState() {
-  const toSave = { cases: {}, deleted: [], exported_at: new Date().toISOString() };
+  const _now = new Date().toISOString();
+  const toSave = { cases: {}, deleted: [], deletedAt: {}, revived: {}, exported_at: _now };
+
+  // A ref that exists in state again (added, imported back, renamed onto) is
+  // REVIVED: stamp it so the revive beats any tombstone still held by the cloud
+  // or by another device, and clear the local tombstone.
+  for (const ref in state.cases) {
+    if (_tombstones.has(ref) || _delAt[ref] !== undefined) {
+      _revAt[ref] = _now;
+      _tombstones.delete(ref);
+      delete _delAt[ref];
+    }
+  }
 
   // Build the tombstone list: known tombstones + any EMBEDDED ref now missing,
   // minus anything that's present in state again (e.g. re-added via import or a
@@ -637,6 +662,11 @@ function saveState() {
   for (const ref in EMBEDDED.cases) if (!state.cases[ref]) del.add(ref);
   _tombstones = del;
   toSave.deleted = [...del];
+  // Keep only stamps that still matter (a deleted ref, or a revive of something
+  // some copy out there may still think is deleted) so the maps can't grow forever.
+  for (const ref of del) if (_delAt[ref]) toSave.deletedAt[ref] = _delAt[ref];
+  for (const ref in _revAt) if (state.cases[ref]) toSave.revived[ref] = _revAt[ref];
+  _revAt = { ...toSave.revived };
 
   for (const ref in state.cases) {
     const c = state.cases[ref];
@@ -709,8 +739,18 @@ function _mergeSaves(a, b) {
   // stays deleted. (`deleted` only ever holds user-initiated deletions, so the
   // tombstone is authoritative and wins over a stale copy still sitting on the
   // other side.) This is what makes a deletion survive a reload/sync round-trip.
-  const del = new Set([...(a.deleted || []), ...(b.deleted || [])]);
+  const rawDel = new Set([...(a.deleted || []), ...(b.deleted || [])]);
+  // Timestamps: newest wins per ref on each side.
+  const dAt = { ...(b.deletedAt || {}), ...(a.deletedAt || {}) };
+  for (const r in (b.deletedAt || {})) if ((b.deletedAt[r] || "") > (dAt[r] || "")) dAt[r] = b.deletedAt[r];
+  const rAt = { ...(b.revived || {}), ...(a.revived || {}) };
+  for (const r in (b.revived || {})) if ((b.revived[r] || "") > (rAt[r] || "")) rAt[r] = b.revived[r];
+  // A ref revived more recently than it was deleted is NOT deleted — this is what
+  // lets a re-added case survive a tombstone that is still in the other blob.
+  const del = _effDeleted(rawDel, dAt, rAt);
   out.deleted = [...del];
+  out.deletedAt = {}; for (const r of del) if (dAt[r]) out.deletedAt[r] = dAt[r];
+  out.revived = {};   for (const r in rAt) if (!del.has(r)) out.revived[r] = rAt[r];
   const refs = new Set([...Object.keys(a.cases || {}), ...Object.keys(b.cases || {})]);
   for (const ref of refs) {
     if (del.has(ref)) continue; // deleted wins over any surviving copy
@@ -1520,6 +1560,8 @@ function removeNotionLink() {
 function deleteCase(ref) {
   if (!confirm("Delete " + ref + "? This cannot be undone.")) return;
   _tombstones.add(ref);
+  _delAt[ref] = new Date().toISOString();   // a delete after a revive wins again
+  delete _revAt[ref];
   delete state.cases[ref];
   saveState();
   refreshAll();
